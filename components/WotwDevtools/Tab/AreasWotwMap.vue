@@ -1,15 +1,19 @@
 <template>
   <div class="d-flex flex-column flex-grow-1 relative">
     <!-- Map -->
-    <wotw-map @mousemove="updateMousePosition" @click="mapClicked" ref="map" class="flex-grow-1 flex-shrink-1">
+    <wotw-map @mousemove="updateMousePosition" @dragend="updateDisplayedGraphics_Colliders" @click="mapClicked" ref="map" class="flex-grow-1 flex-shrink-1">
       <k-layer>
-        <k-line v-for="line in displayedLines" :key="line.elementDisplayIndex" :config="line"
+        <!-- <k-line v-for="line in displayedLines" :key="line.elementDisplayIndex" :config="line"
           @click="selectDisplayedObject(line.name)" @mouseout="displayElementMouseOut(line.name)"
           @mouseover="displayElementMouseOver(line.name)" />
 
         <k-circle v-for="circle in displayedCircles" :key="circle.elementDisplayIndex" :config="circle"
           @click="selectDisplayedObject(circle.name)" @mouseout="displayElementMouseOut(circle.name)"
-          @mouseover="displayElementMouseOver(circle.name)" />
+          @mouseover="displayElementMouseOver(circle.name)" /> -->
+          <k-circle x="0" y="0" radius="20" fill="white" />
+            <k-group v-for="group in displayedColliderGroups" :key="group.name">
+              <k-line v-for="line in group.lines" :key="line.name" :config="line" />
+            </k-group> 
       </k-layer>
     </wotw-map>
 
@@ -165,6 +169,8 @@ export default {
     connectionType: null,
     currentDisplayIndex: 0,
     displayedObjects: null,
+    colliderGroups: null,
+    displayedColliderGroups: null,
     renderingOverlay: false,
     shouldRenderOverlayAgainAfterRenderingCompleted: false,
     selectedObject: null,
@@ -211,8 +217,10 @@ export default {
       const { ConnectionType } = await getSeedgen()
       this.connectionType = ConnectionType
 
-      await this.updateCoreGraphics()
+      await this.updateCoreGraphics_Logic()
+      await this.updateCoreGraphics_Colliders()
       await this.updateDisplayedGraphics()
+      this.updateDisplayedGraphics_Colliders()
 
       this.renderingOverlay = false
       if (this.shouldRenderOverlayAgainAfterRenderingCompleted) {
@@ -220,7 +228,7 @@ export default {
       }
     },
 
-    async updateCoreGraphics() {
+    async updateCoreGraphics_Logic() {
       try {
         // read data from the logic files
         const areasWotwContents = await window.electronApi.invoke('seedgen.getAreasFileContents')
@@ -278,6 +286,69 @@ export default {
       } catch (e) {
         console.error(e)
       }
+    },
+
+    async updateCoreGraphics_Colliders(){
+
+      this.colliderGroups = []
+      this.displayedColliderGroups = []
+      const colliderData = await window.electronApi.invoke('areasWotw.getColliderData')
+      for ( const collider of colliderData){
+
+        let index = 0
+        const lines = []
+        for ( const group of collider.data.vectors){
+          const points = []
+          for ( const vector of group) {
+            points.push(vector[0])
+            points.push(vector[1])
+          } 
+          
+          index += 1
+          lines.push({
+            name: `${collider.file}_${index.toString()}`,
+            points,
+            stroke: collider.data.damageDealer ? 'red' : 'green',
+            strokeWidth: 0.5,
+          })
+        }
+        this.colliderGroups.push({
+          name: collider.file,
+          lines,
+          boundingbox: {
+            x: collider.data.boundingbox.x,
+            y: collider.data.boundingbox.y,
+            width: collider.data.boundingbox.width,
+            height: collider.data.boundingbox.height,
+          },
+        })
+      }
+    },
+
+    updateDisplayedGraphics_Colliders(_event, displayedArea){
+      if(!displayedArea){return}
+      const displayedAreaCenter = {x: displayedArea.x + displayedArea.width /2, y: displayedArea.y + displayedArea.height / 2 }
+      if (this.displayedColliderGroups){
+        for (let i = this.displayedColliderGroups.length - 1; i >= 0; i--){
+          if (!this.boundigboxInDisplayArea(this.displayedColliderGroups[i].boundingbox, displayedAreaCenter)){
+            this.displayedColliderGroups.splice(i, 1)
+          }
+        }
+      }
+      for (const group of this.colliderGroups){
+        if (this.boundigboxInDisplayArea(group.boundingbox, displayedAreaCenter)){
+          if (!this.displayedColliderGroups.some(g => g.name === group.name)){
+            this.displayedColliderGroups.push({...group})
+          }
+        }
+      }
+    },
+
+    boundigboxInDisplayArea(box, displayedAreaCenter){
+      const boxCenter = {x: box.x + box.width /2, y: box.y + box.height / 2 }
+      const maxDisance = 200
+      const distance = Math.sqrt((boxCenter.x - displayedAreaCenter.x) ** 2 + (boxCenter.y - displayedAreaCenter.y) ** 2)
+      return distance <= maxDisance
     },
 
     updateDisplayedGraphics() {

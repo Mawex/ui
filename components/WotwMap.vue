@@ -9,7 +9,7 @@
       </template>
     </v-snackbar>
     <div ref="timelineStageContainer" class="stage-container fill-height">
-      <k-stage ref="stage" :config="stageConfig" @wheel="onStageWheel" @mouseMove="e => emitMousePosition('mousemove', e)" @click="e => emitMousePosition('click', e)">
+      <k-stage ref="stage" :config="stageConfig" @dragend="e => emitStageArea('dragend', e)" @wheel="onStageWheel" @mouseMove="e => emitMousePosition('mousemove', e)" @click="e => emitMousePosition('click', e)">
         <k-layer ref="layer">
           <k-image v-for="(tile, index) in mapTiles" :key="index" :config="tile" />
         </k-layer>
@@ -20,6 +20,7 @@
 </template>
 
 <script>
+
   export default {
     name: 'WotwMap',
     props: {
@@ -79,6 +80,17 @@
         const layer = this.stage.children[0]
         this.$emit(eventName, event, layer.getRelativePointerPosition())
       },
+      emitStageArea(eventName, event) {
+        const container = this.stage.container()
+        const stageRect = container.getBoundingClientRect()
+        const area = {
+          x: this.stage.x() / this.stage.scaleY() - stageRect.left,
+          y: this.stage.y() / this.stage.scaleX() - stageRect.top,
+          width: stageRect.width / this.stage.scaleX(),
+          height: stageRect.height / this.stage.scaleY(),
+        }
+        this.$emit(eventName, event, area)
+      },
       async loadImage(x, y) {
         try {
           const image = await this.getImage(x, y)
@@ -111,7 +123,7 @@
         this.stageConfig.height = this.$refs.timelineStageContainer.clientHeight
       },
       onStageWheel(e) {
-        const scaleBy = 0.96
+        const scaleBy = 0.9
         const stage = this.stage
         const oldScale = stage.scaleX()
         const pointer = stage.getPointerPosition()

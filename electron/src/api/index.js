@@ -13,6 +13,7 @@ import randoIpc from './randoIpc'
 import seedgen from './seedgen'
 import tas from './tas'
 import stats from './stats'
+import areasWotw from './areasWotw'
 
 export default {
   settings,
@@ -30,4 +31,5 @@ export default {
   seedgen,
   tas,
   stats,
+  areasWotw,
 }
