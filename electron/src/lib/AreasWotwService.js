@@ -1,7 +1,7 @@
 import path from 'path'
 import fs from 'fs/promises'
 
-const directoryPath = 'D:\\SteamLibrary\\steamapps\\common\\Ori and the Will of the Wisps\\sceneCollisions'
+const directoryPath = 'C:\\moon\\sceneCollisions'
 
 export class AreasWotwService {
   //   public static getCollidersFilePath() {

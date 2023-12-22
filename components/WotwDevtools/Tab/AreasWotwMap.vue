@@ -1,7 +1,8 @@
 <template>
   <div class="d-flex flex-column flex-grow-1 relative">
     <!-- Map -->
-    <wotw-map @mousemove="updateMousePosition" @dragend="updateDisplayedGraphics_Colliders" @click="mapClicked" ref="map" class="flex-grow-1 flex-shrink-1">
+    <wotw-map @mousemove="updateMousePosition" @dragend="updateDisplayedGraphics_Colliders" @click="mapClicked" ref="map"
+      class="flex-grow-1 flex-shrink-1">
       <k-layer>
         <!-- <k-line v-for="line in displayedLines" :key="line.elementDisplayIndex" :config="line"
           @click="selectDisplayedObject(line.name)" @mouseout="displayElementMouseOut(line.name)"
@@ -10,10 +11,12 @@
         <k-circle v-for="circle in displayedCircles" :key="circle.elementDisplayIndex" :config="circle"
           @click="selectDisplayedObject(circle.name)" @mouseout="displayElementMouseOut(circle.name)"
           @mouseover="displayElementMouseOver(circle.name)" /> -->
-          <k-circle x="0" y="0" radius="20" fill="white" />
-            <k-group v-for="group in displayedColliderGroups" :key="group.name">
-              <k-line v-for="line in group.lines" :key="line.name" :config="line" />
-            </k-group> 
+        <k-circle x="0" y="0" radius="20" fill="white" />
+        <k-group v-for="group in displayedColliderGroups" :key="group.name">
+          <k-line @click="selectColliderGroupLine(group, line)" v-for="line in group.lines" :key="line.name"
+            :config="line" />
+        </k-group>
+        <k-line v-for="line in displayedCapsuleColliders" :key="line.name" :config="line" />
       </k-layer>
     </wotw-map>
 
@@ -33,7 +36,8 @@
             </tr>
           </tbody>
         </table>
-        <copy-to-clipboard-button v-if="coordinatesFrozen" class="selection-button" :value="`${cursorPosition.x.toFixed(2).toString()},${cursorPosition.y.toFixed(2).toString()}`" />
+        <copy-to-clipboard-button v-if="coordinatesFrozen" class="selection-button"
+          :value="`${cursorPosition.x.toFixed(2).toString()},${cursorPosition.y.toFixed(2).toString()}`" />
       </v-card>
     </v-slide-x-transition>
 
@@ -47,12 +51,12 @@
           <v-icon>mdi-cursor-default-outline</v-icon>
         </v-btn>
       </v-btn-toggle>
-        <v-btn-toggle v-model="selectionInfoOpen">
-          <v-btn :value="true" :disabled="!selectedObject">
-            <v-icon>mdi-eye-outline</v-icon>
-          </v-btn>
-        </v-btn-toggle>
-      </div>
+      <v-btn-toggle v-model="selectionInfoOpen">
+        <v-btn :value="true" :disabled="!selectedObject">
+          <v-icon>mdi-eye-outline</v-icon>
+        </v-btn>
+      </v-btn-toggle>
+    </div>
 
     <v-slide-x-reverse-transition>
       <v-card v-if="selectionInfoOpen" class="selection-info-right pa-3">
@@ -171,6 +175,7 @@ export default {
     displayedObjects: null,
     colliderGroups: null,
     displayedColliderGroups: null,
+    displayedCapsuleColliders: null,
     renderingOverlay: false,
     shouldRenderOverlayAgainAfterRenderingCompleted: false,
     selectedObject: null,
@@ -288,67 +293,86 @@ export default {
       }
     },
 
-    async updateCoreGraphics_Colliders(){
+    async updateCoreGraphics_Colliders() {
 
       this.colliderGroups = []
       this.displayedColliderGroups = []
+      this.displayedCapsuleColliders = []
       const colliderData = await window.electronApi.invoke('areasWotw.getColliderData')
-      for ( const collider of colliderData){
-
-        let index = 0
-        const lines = []
-        for ( const group of collider.data.vectors){
+      for (const collider of colliderData) {
+        if (collider.data.type === "capsuleCollider") {
           const points = []
-          for ( const vector of group) {
+          for (const vector of collider.data.data.outerVectors) {
             points.push(vector[0])
             points.push(vector[1])
-          } 
-          
-          index += 1
-          lines.push({
-            name: `${collider.file}_${index.toString()}`,
+          }
+          this.displayedCapsuleColliders.push({
+            name: collider.file,
             points,
-            stroke: collider.data.damageDealer ? 'red' : 'green',
+            stroke: 'green',
             strokeWidth: 0.5,
           })
         }
-        this.colliderGroups.push({
-          name: collider.file,
-          lines,
-          boundingbox: {
-            x: collider.data.boundingbox.x,
-            y: collider.data.boundingbox.y,
-            width: collider.data.boundingbox.width,
-            height: collider.data.boundingbox.height,
-          },
-        })
+        if (collider.data.type === "meshCollider") {
+            const lines = []
+            let groupIndex = 0
+            for (const group of collider.data.data.vectors) {
+              groupIndex += 1
+              const points = []
+              for (const vector of group) {
+                points.push(vector[0])
+                points.push(vector[1])
+              }
+
+              lines.push({
+                name: `${collider.file}_${groupIndex}`,
+                groupIndex,
+                points,
+                damageDealer: collider.data.data.damageDealer,
+                stroke: collider.data.data.damageDealer ? 'red' : 'green',
+                strokeWidth: 0.5,
+              })
+            }
+            this.colliderGroups.push({
+              name: collider.file,
+              lines,
+              hierarchy_path: collider.data.hierarchy_path,
+              boundingbox: {
+                x: collider.data.data.boundingbox.x,
+                y: collider.data.data.boundingbox.y,
+                width: collider.data.data.boundingbox.width,
+                height: collider.data.data.boundingbox.height,
+              },
+            })
+        }
       }
     },
 
-    updateDisplayedGraphics_Colliders(_event, displayedArea){
-      if(!displayedArea){return}
-      const displayedAreaCenter = {x: displayedArea.x + displayedArea.width /2, y: displayedArea.y + displayedArea.height / 2 }
-      if (this.displayedColliderGroups){
-        for (let i = this.displayedColliderGroups.length - 1; i >= 0; i--){
-          if (!this.boundigboxInDisplayArea(this.displayedColliderGroups[i].boundingbox, displayedAreaCenter)){
+    updateDisplayedGraphics_Colliders(_event, displayedArea) {
+      if (!displayedArea) { return }
+      const displayedAreaCenter = { x: displayedArea.x + displayedArea.width / 2, y: displayedArea.y + displayedArea.height / 2 }
+      if (this.displayedColliderGroups) {
+        for (let i = this.displayedColliderGroups.length - 1; i >= 0; i--) {
+          if (!this.boundigboxInDisplayArea(this.displayedColliderGroups[i].boundingbox, displayedAreaCenter)) {
             this.displayedColliderGroups.splice(i, 1)
           }
         }
       }
-      for (const group of this.colliderGroups){
-        if (this.boundigboxInDisplayArea(group.boundingbox, displayedAreaCenter)){
-          if (!this.displayedColliderGroups.some(g => g.name === group.name)){
-            this.displayedColliderGroups.push({...group})
+      for (const group of this.colliderGroups) {
+        if (this.boundigboxInDisplayArea(group.boundingbox, displayedAreaCenter)) {
+          if (!this.displayedColliderGroups.some(g => g.name === group.name)) {
+            this.displayedColliderGroups.push({ ...group })
           }
         }
       }
     },
 
-    boundigboxInDisplayArea(box, displayedAreaCenter){
-      const boxCenter = {x: box.x + box.width /2, y: box.y + box.height / 2 }
-      const maxDisance = 200
-      const distance = Math.sqrt((boxCenter.x - displayedAreaCenter.x) ** 2 + (boxCenter.y - displayedAreaCenter.y) ** 2)
-      return distance <= maxDisance
+    boundigboxInDisplayArea(_box, _displayedAreaCenter) {
+      return true
+      // const boxCenter = { x: box.x + box.width / 2, y: box.y + box.height / 2 }
+      // const maxDisance = 200
+      // const distance = Math.sqrt((boxCenter.x - displayedAreaCenter.x) ** 2 + (boxCenter.y - displayedAreaCenter.y) ** 2)
+      // return distance <= maxDisance
     },
 
     updateDisplayedGraphics() {
@@ -465,7 +489,7 @@ export default {
     },
 
     selectDisplayedObject(objectName) {
-      if(!this.cursorSelectionMode) { return }
+      if (!this.cursorSelectionMode) { return }
 
       // get selected object
       let object = this.displayedObjects.find((obj) => obj.name === objectName)
@@ -528,6 +552,10 @@ export default {
       this.selectionInfoOpen = false
       this.selectedObject = null
       this.selectionInfo = null
+    },
+
+    selectColliderGroupLine(group, line) {
+      console.log(group.hierarchy_path, line.name)
     },
 
     getNodeConnections(objectName, logicalType) {
@@ -593,13 +621,13 @@ export default {
 
     },
 
-    updateMousePosition(_event, position){
-      if(this.coordinatesFrozen) { return }
+    updateMousePosition(_event, position) {
+      if (this.coordinatesFrozen) { return }
       this.cursorPosition = position
     },
 
-    mapClicked(event, position){
-      if(!this.cursorSelectionMode){
+    mapClicked(event, position) {
+      if (!this.cursorSelectionMode) {
 
         this.coordinatesFrozen = false
         this.updateMousePosition(event, position)
@@ -609,7 +637,7 @@ export default {
 
     toggleSelectionCursor(selectionModeActive) {
       this.coordinatesFrozen = false
-      if(selectionModeActive){
+      if (selectionModeActive) {
         document.body.style.cursor = 'default'
       } else {
         document.body.style.cursor = 'crosshair'
